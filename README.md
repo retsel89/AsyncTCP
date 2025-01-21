@@ -6,7 +6,7 @@
 [![Continuous Integration](https://github.com/ESP32Async/AsyncTCP/actions/workflows/ci.yml/badge.svg)](https://github.com/ESP32Async/AsyncTCP/actions/workflows/ci.yml)
 [![PlatformIO Registry](https://badges.registry.platformio.org/packages/ESP32Async/library/AsyncTCP.svg)](https://registry.platformio.org/libraries/ESP32Async/AsyncTCP)
 
-Project moved to [ESP32Async](https://github.com/organizations/ESP32Async) organization at [https://github.com/ESP32Async/AsyncTCP](https://github.com/ESP32Async/AsyncTCP)
+Project moved to [ESP32Async](https://github.com/ESP32Async) organization at [https://github.com/ESP32Async/AsyncTCP](https://github.com/ESP32Async/AsyncTCP)
 
 Discord Server: [https://discord.gg/X7zpGdyUcY](https://discord.gg/X7zpGdyUcY)
 
