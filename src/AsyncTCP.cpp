@@ -81,10 +81,10 @@ typedef enum {
   LWIP_TCP_ACCEPT,
   LWIP_TCP_CONNECTED,
   LWIP_TCP_DNS
-} lwip_event_t;
+} lwip_tcp_event_t;
 
 typedef struct {
-    lwip_event_t event;
+    lwip_tcp_event_t event;
     void* arg;
     union {
         struct {
@@ -118,7 +118,7 @@ typedef struct {
             ip_addr_t addr;
         } dns;
     };
-} lwip_event_packet_t;
+} lwip_tcp_event_packet_t;
 
 static QueueHandle_t _async_queue;
 static TaskHandle_t _async_service_task_handle = NULL;
@@ -137,7 +137,7 @@ static uint32_t _closed_index = []() {
 
 static inline bool _init_async_event_queue() {
   if (!_async_queue) {
-    _async_queue = xQueueCreate(CONFIG_ASYNC_TCP_QUEUE_SIZE, sizeof(lwip_event_packet_t*));
+    _async_queue = xQueueCreate(CONFIG_ASYNC_TCP_QUEUE_SIZE, sizeof(lwip_tcp_event_packet_t*));
     if (!_async_queue) {
       return false;
     }
@@ -145,15 +145,15 @@ static inline bool _init_async_event_queue() {
   return true;
 }
 
-static inline bool _send_async_event(lwip_event_packet_t** e, TickType_t wait = portMAX_DELAY) {
+static inline bool _send_async_event(lwip_tcp_event_packet_t** e, TickType_t wait = portMAX_DELAY) {
   return _async_queue && xQueueSend(_async_queue, e, wait) == pdPASS;
 }
 
-static inline bool _prepend_async_event(lwip_event_packet_t** e, TickType_t wait = portMAX_DELAY) {
+static inline bool _prepend_async_event(lwip_tcp_event_packet_t** e, TickType_t wait = portMAX_DELAY) {
   return _async_queue && xQueueSendToFront(_async_queue, e, wait) == pdPASS;
 }
 
-static inline bool _get_async_event(lwip_event_packet_t** e) {
+static inline bool _get_async_event(lwip_tcp_event_packet_t** e) {
   if (!_async_queue) {
     return false;
   }
@@ -178,7 +178,7 @@ static inline bool _get_async_event(lwip_event_packet_t** e) {
     It won't be effective if user would run multiple simultaneous long running callbacks due to message interleaving.
     todo: implement some kind of fair dequeing or (better) simply punish user for a bad designed callbacks by resetting hog connections
   */
-  lwip_event_packet_t* next_pkt = NULL;
+  lwip_tcp_event_packet_t* next_pkt = NULL;
   while (xQueuePeek(_async_queue, &next_pkt, 0) == pdPASS) {
     if (next_pkt->arg == (*e)->arg && next_pkt->event == LWIP_TCP_POLL) {
       if (xQueueReceive(_async_queue, &next_pkt, 0) == pdPASS) {
@@ -219,8 +219,8 @@ static bool _remove_events_with_arg(void* arg) {
     return false;
   }
 
-  lwip_event_packet_t* first_packet = NULL;
-  lwip_event_packet_t* packet = NULL;
+  lwip_tcp_event_packet_t* first_packet = NULL;
+  lwip_tcp_event_packet_t* packet = NULL;
 
   // figure out which is the first non-matching packet so we can keep the order
   while (!first_packet) {
@@ -261,7 +261,7 @@ static bool _remove_events_with_arg(void* arg) {
   return true;
 }
 
-static void _handle_async_event(lwip_event_packet_t* e) {
+static void _handle_async_event(lwip_tcp_event_packet_t* e) {
   if (e->arg == NULL) {
     // do nothing when arg is NULL
     // ets_printf("event arg == NULL: 0x%08x\n", e->recv.pcb);
@@ -301,7 +301,7 @@ static void _async_service_task(void* pvParameters) {
     log_w("Failed to add async task to WDT");
   }
 #endif
-  lwip_event_packet_t* packet = NULL;
+  lwip_tcp_event_packet_t* packet = NULL;
   for (;;) {
     if (_get_async_event(&packet)) {
       _handle_async_event(packet);
@@ -362,7 +362,7 @@ static bool _start_async_task() {
  * */
 
 static int8_t _tcp_clear_events(void* arg) {
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->event = LWIP_TCP_CLEAR;
   e->arg = arg;
   if (!_prepend_async_event(&e)) {
@@ -373,7 +373,7 @@ static int8_t _tcp_clear_events(void* arg) {
 
 static int8_t _tcp_connected(void* arg, tcp_pcb* pcb, int8_t err) {
   // ets_printf("+C: 0x%08x\n", pcb);
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->event = LWIP_TCP_CONNECTED;
   e->arg = arg;
   e->connected.pcb = pcb;
@@ -393,7 +393,7 @@ static int8_t _tcp_poll(void* arg, struct tcp_pcb* pcb) {
   }
 
   // ets_printf("+P: 0x%08x\n", pcb);
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->event = LWIP_TCP_POLL;
   e->arg = arg;
   e->poll.pcb = pcb;
@@ -405,7 +405,7 @@ static int8_t _tcp_poll(void* arg, struct tcp_pcb* pcb) {
 }
 
 static int8_t _tcp_recv(void* arg, struct tcp_pcb* pcb, struct pbuf* pb, int8_t err) {
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->arg = arg;
   if (pb) {
     // ets_printf("+R: 0x%08x\n", pcb);
@@ -429,7 +429,7 @@ static int8_t _tcp_recv(void* arg, struct tcp_pcb* pcb, struct pbuf* pb, int8_t 
 
 static int8_t _tcp_sent(void* arg, struct tcp_pcb* pcb, uint16_t len) {
   // ets_printf("+S: 0x%08x\n", pcb);
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->event = LWIP_TCP_SENT;
   e->arg = arg;
   e->sent.pcb = pcb;
@@ -442,7 +442,7 @@ static int8_t _tcp_sent(void* arg, struct tcp_pcb* pcb, uint16_t len) {
 
 static void _tcp_error(void* arg, int8_t err) {
   // ets_printf("+E: 0x%08x\n", arg);
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->event = LWIP_TCP_ERROR;
   e->arg = arg;
   e->error.err = err;
@@ -452,7 +452,7 @@ static void _tcp_error(void* arg, int8_t err) {
 }
 
 static void _tcp_dns_found(const char* name, struct ip_addr* ipaddr, void* arg) {
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   // ets_printf("+DNS: name=%s ipaddr=0x%08x arg=%x\n", name, ipaddr, arg);
   e->event = LWIP_TCP_DNS;
   e->arg = arg;
@@ -469,7 +469,7 @@ static void _tcp_dns_found(const char* name, struct ip_addr* ipaddr, void* arg) 
 
 // Used to switch out from LwIP thread
 static int8_t _tcp_accept(void* arg, AsyncClient* client) {
-  lwip_event_packet_t* e = (lwip_event_packet_t*)malloc(sizeof(lwip_event_packet_t));
+  lwip_tcp_event_packet_t* e = (lwip_tcp_event_packet_t*)malloc(sizeof(lwip_tcp_event_packet_t));
   e->event = LWIP_TCP_ACCEPT;
   e->arg = arg;
   e->accept.client = client;
