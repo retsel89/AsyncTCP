@@ -102,14 +102,15 @@ typedef struct {
   };
 } lwip_tcp_event_packet_t;
 
-static QueueHandle_t _async_queue;
+static QueueHandle_t _async_queue = NULL;
 static TaskHandle_t _async_service_task_handle = NULL;
 
-SemaphoreHandle_t _slots_lock;
-const int _number_of_closed_slots = CONFIG_LWIP_MAX_ACTIVE_TCP;
+static SemaphoreHandle_t _slots_lock = NULL;
+static const int _number_of_closed_slots = CONFIG_LWIP_MAX_ACTIVE_TCP;
 static uint32_t _closed_slots[_number_of_closed_slots];
 static uint32_t _closed_index = []() {
   _slots_lock = xSemaphoreCreateBinary();
+  configASSERT(_slots_lock);  // Add sanity check
   xSemaphoreGive(_slots_lock);
   for (int i = 0; i < _number_of_closed_slots; ++i) {
     _closed_slots[i] = 1;
@@ -136,67 +137,67 @@ static inline bool _prepend_async_event(lwip_tcp_event_packet_t **e, TickType_t 
 }
 
 static inline bool _get_async_event(lwip_tcp_event_packet_t **e) {
-  if (!_async_queue) {
-    return false;
-  }
-
-#if CONFIG_ASYNC_TCP_USE_WDT
-  // need to return periodically to feed the dog
-  if (xQueueReceive(_async_queue, e, pdMS_TO_TICKS(1000)) != pdPASS) {
-    return false;
-  }
-#else
-  if (xQueueReceive(_async_queue, e, portMAX_DELAY) != pdPASS) {
-    return false;
-  }
-#endif
-
-  if ((*e)->event != LWIP_TCP_POLL) {
-    return true;
-  }
-
-  /*
-    Let's try to coalesce two (or more) consecutive poll events into one
-    this usually happens with poor implemented user-callbacks that are runs too long and makes poll events to stack in the queue
-    if consecutive user callback for a same connection runs longer that poll time then it will fill the queue with events until it deadlocks.
-    This is a workaround to mitigate such poor designs and won't let other events/connections to starve the task time.
-    It won't be effective if user would run multiple simultaneous long running callbacks due to message interleaving.
-    todo: implement some kind of fair dequeuing or (better) simply punish user for a bad designed callbacks by resetting hog connections
-  */
-  lwip_tcp_event_packet_t *next_pkt = NULL;
-  while (xQueuePeek(_async_queue, &next_pkt, 0) == pdPASS) {
-    if (next_pkt->arg == (*e)->arg && next_pkt->event == LWIP_TCP_POLL) {
-      if (xQueueReceive(_async_queue, &next_pkt, 0) == pdPASS) {
-        free(next_pkt);
-        next_pkt = NULL;
-        log_d("coalescing polls, network congestion or async callbacks might be too slow!");
-        continue;
-      }
+  while (true) {
+    if (!_async_queue) {
+      break;
     }
 
-    // quit while loop if next event can't be discarded
-    break;
-  }
+#if CONFIG_ASYNC_TCP_USE_WDT
+    // need to return periodically to feed the dog
+    if (xQueueReceive(_async_queue, e, pdMS_TO_TICKS(1000)) != pdPASS) {
+      break;
+    }
+#else
+    if (xQueueReceive(_async_queue, e, portMAX_DELAY) != pdPASS) {
+      break;
+    }
+#endif
 
-  /*
-    now we have to decide if to proceed with poll callback handler or discard it?
-    poor designed apps using asynctcp without proper dataflow control could flood the queue with interleaved pool/ack events.
-    I.e. on each poll app would try to generate more data to send, which in turn results in additional ack event triggering chain effect
-    for long connections. Or poll callback could take long time starving other connections. Anyway our goal is to keep the queue length
-    grows under control (if possible) and poll events are the safest to discard.
-    Let's discard poll events processing using linear-increasing probability curve when queue size grows over 3/4
-    Poll events are periodic and connection could get another chance next time
-  */
-  if (uxQueueMessagesWaiting(_async_queue) > (rand() % CONFIG_ASYNC_TCP_QUEUE_SIZE / 4 + CONFIG_ASYNC_TCP_QUEUE_SIZE * 3 / 4)) {
-    free(*e);
-    *e = NULL;
-    log_d("discarding poll due to queue congestion");
-    // evict next event from a queue
-    return _get_async_event(e);
-  }
+    if ((*e)->event != LWIP_TCP_POLL) {
+      return true;
+    }
 
-  // last resort return
-  return true;
+    /*
+      Let's try to coalesce two (or more) consecutive poll events into one
+      this usually happens with poor implemented user-callbacks that are runs too long and makes poll events to stack in the queue
+      if consecutive user callback for a same connection runs longer that poll time then it will fill the queue with events until it deadlocks.
+      This is a workaround to mitigate such poor designs and won't let other events/connections to starve the task time.
+      It won't be effective if user would run multiple simultaneous long running callbacks due to message interleaving.
+      todo: implement some kind of fair dequeuing or (better) simply punish user for a bad designed callbacks by resetting hog connections
+    */
+    lwip_tcp_event_packet_t *next_pkt = NULL;
+    while (xQueuePeek(_async_queue, &next_pkt, 0) == pdPASS) {
+      if (next_pkt->arg == (*e)->arg && next_pkt->event == LWIP_TCP_POLL) {
+        if (xQueueReceive(_async_queue, &next_pkt, 0) == pdPASS) {
+          free(next_pkt);
+          next_pkt = NULL;
+          log_d("coalescing polls, network congestion or async callbacks might be too slow!");
+          continue;
+        }
+      }
+
+      // quit while loop if next event can't be discarded
+      break;
+    }
+
+    /*
+      now we have to decide if to proceed with poll callback handler or discard it?
+      poor designed apps using asynctcp without proper dataflow control could flood the queue with interleaved pool/ack events.
+      I.e. on each poll app would try to generate more data to send, which in turn results in additional ack event triggering chain effect
+      for long connections. Or poll callback could take long time starving other connections. Anyway our goal is to keep the queue length
+      grows under control (if possible) and poll events are the safest to discard.
+      Let's discard poll events processing using linear-increasing probability curve when queue size grows over 3/4
+      Poll events are periodic and connection could get another chance next time
+    */
+    if (uxQueueMessagesWaiting(_async_queue) > (rand() % CONFIG_ASYNC_TCP_QUEUE_SIZE / 4 + CONFIG_ASYNC_TCP_QUEUE_SIZE * 3 / 4)) {
+      free(*e);
+      *e = NULL;
+      log_d("discarding poll due to queue congestion");
+      continue;  // Retry
+    }
+    return true;
+  }
+  return false;
 }
 
 static bool _remove_events_with_arg(void *arg) {
@@ -213,7 +214,7 @@ static bool _remove_events_with_arg(void *arg) {
       return false;
     }
     // discard packet if matching
-    if ((int)first_packet->arg == (int)arg) {
+    if ((uintptr_t)first_packet->arg == (uintptr_t)arg) {
       free(first_packet);
       first_packet = NULL;
     } else if (xQueueSend(_async_queue, &first_packet, 0) != pdPASS) {
@@ -230,7 +231,7 @@ static bool _remove_events_with_arg(void *arg) {
     if (xQueueReceive(_async_queue, &packet, 0) != pdPASS) {
       return false;
     }
-    if ((int)packet->arg == (int)arg) {
+    if ((uintptr_t)packet->arg == (uintptr_t)arg) {
       // remove matching event
       free(packet);
       packet = NULL;
@@ -346,6 +347,10 @@ static bool _start_async_task() {
 
 static int8_t _tcp_clear_events(void *arg) {
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return ERR_MEM;
+  }
   e->event = LWIP_TCP_CLEAR;
   e->arg = arg;
   if (!_prepend_async_event(&e)) {
@@ -357,6 +362,10 @@ static int8_t _tcp_clear_events(void *arg) {
 static int8_t _tcp_connected(void *arg, tcp_pcb *pcb, int8_t err) {
   // ets_printf("+C: 0x%08x\n", pcb);
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return ERR_MEM;
+  }
   e->event = LWIP_TCP_CONNECTED;
   e->arg = arg;
   e->connected.pcb = pcb;
@@ -377,6 +386,10 @@ static int8_t _tcp_poll(void *arg, struct tcp_pcb *pcb) {
 
   // ets_printf("+P: 0x%08x\n", pcb);
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return ERR_MEM;
+  }
   e->event = LWIP_TCP_POLL;
   e->arg = arg;
   e->poll.pcb = pcb;
@@ -389,6 +402,10 @@ static int8_t _tcp_poll(void *arg, struct tcp_pcb *pcb) {
 
 static int8_t _tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *pb, int8_t err) {
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return ERR_MEM;
+  }
   e->arg = arg;
   if (pb) {
     // ets_printf("+R: 0x%08x\n", pcb);
@@ -413,6 +430,10 @@ static int8_t _tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *pb, int8_t 
 static int8_t _tcp_sent(void *arg, struct tcp_pcb *pcb, uint16_t len) {
   // ets_printf("+S: 0x%08x\n", pcb);
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return ERR_MEM;
+  }
   e->event = LWIP_TCP_SENT;
   e->arg = arg;
   e->sent.pcb = pcb;
@@ -426,6 +447,10 @@ static int8_t _tcp_sent(void *arg, struct tcp_pcb *pcb, uint16_t len) {
 static void _tcp_error(void *arg, int8_t err) {
   // ets_printf("+E: 0x%08x\n", arg);
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return;
+  }
   e->event = LWIP_TCP_ERROR;
   e->arg = arg;
   e->error.err = err;
@@ -436,6 +461,10 @@ static void _tcp_error(void *arg, int8_t err) {
 
 static void _tcp_dns_found(const char *name, struct ip_addr *ipaddr, void *arg) {
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return;
+  }
   // ets_printf("+DNS: name=%s ipaddr=0x%08x arg=%x\n", name, ipaddr, arg);
   e->event = LWIP_TCP_DNS;
   e->arg = arg;
@@ -453,6 +482,10 @@ static void _tcp_dns_found(const char *name, struct ip_addr *ipaddr, void *arg) 
 // Used to switch out from LwIP thread
 static int8_t _tcp_accept(void *arg, AsyncClient *client) {
   lwip_tcp_event_packet_t *e = (lwip_tcp_event_packet_t *)malloc(sizeof(lwip_tcp_event_packet_t));
+  if (!e) {
+    log_e("Failed to allocate event packet");
+    return ERR_MEM;
+  }
   e->event = LWIP_TCP_ACCEPT;
   e->arg = arg;
   e->accept.client = client;
@@ -664,8 +697,8 @@ static tcp_pcb *_tcp_listen_with_backlog(tcp_pcb *pcb, uint8_t backlog) {
 
 AsyncClient::AsyncClient(tcp_pcb *pcb)
   : _connect_cb(0), _connect_cb_arg(0), _discard_cb(0), _discard_cb_arg(0), _sent_cb(0), _sent_cb_arg(0), _error_cb(0), _error_cb_arg(0), _recv_cb(0),
-    _recv_cb_arg(0), _pb_cb(0), _pb_cb_arg(0), _timeout_cb(0), _timeout_cb_arg(0), _ack_pcb(true), _tx_last_packet(0), _rx_timeout(0), _rx_last_ack(0),
-    _ack_timeout(CONFIG_ASYNC_TCP_MAX_ACK_TIME), _connect_port(0), prev(NULL), next(NULL) {
+    _recv_cb_arg(0), _pb_cb(0), _pb_cb_arg(0), _timeout_cb(0), _timeout_cb_arg(0), _poll_cb(0), _poll_cb_arg(0), _ack_pcb(true), _tx_last_packet(0),
+    _rx_timeout(0), _rx_last_ack(0), _ack_timeout(CONFIG_ASYNC_TCP_MAX_ACK_TIME), _connect_port(0), prev(NULL), next(NULL) {
   _pcb = pcb;
   _closed_slot = INVALID_CLOSED_SLOT;
   if (_pcb) {
@@ -964,18 +997,19 @@ bool AsyncClient::_allocate_closed_slot() {
   if (_closed_slot != INVALID_CLOSED_SLOT) {
     return true;
   }
-  xSemaphoreTake(_slots_lock, portMAX_DELAY);
-  uint32_t closed_slot_min_index = 0;
-  for (int i = 0; i < _number_of_closed_slots; ++i) {
-    if ((_closed_slot == INVALID_CLOSED_SLOT || _closed_slots[i] <= closed_slot_min_index) && _closed_slots[i] != 0) {
-      closed_slot_min_index = _closed_slots[i];
-      _closed_slot = i;
+  if (xSemaphoreTake(_slots_lock, portMAX_DELAY) == pdTRUE) {
+    uint32_t closed_slot_min_index = 0;
+    for (int i = 0; i < _number_of_closed_slots; ++i) {
+      if ((_closed_slot == INVALID_CLOSED_SLOT || _closed_slots[i] <= closed_slot_min_index) && _closed_slots[i] != 0) {
+        closed_slot_min_index = _closed_slots[i];
+        _closed_slot = i;
+      }
     }
+    if (_closed_slot != INVALID_CLOSED_SLOT) {
+      _closed_slots[_closed_slot] = 0;
+    }
+    xSemaphoreGive(_slots_lock);
   }
-  if (_closed_slot != INVALID_CLOSED_SLOT) {
-    _closed_slots[_closed_slot] = 0;
-  }
-  xSemaphoreGive(_slots_lock);
   return (_closed_slot != INVALID_CLOSED_SLOT);
 }
 
@@ -1539,6 +1573,7 @@ void AsyncServer::begin() {
 
   if (err != ERR_OK) {
     _tcp_close(_pcb, -1);
+    _pcb = NULL;
     log_e("bind error: %d", err);
     return;
   }

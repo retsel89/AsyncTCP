@@ -211,6 +211,7 @@ public:
   // set callback - data received (called if onPacket is not used)
   void onData(AcDataHandler cb, void *arg = 0);
   // set callback - data received
+  // !!! You MUST call ackPacket() or free the pbuf yourself to prevent memory leaks
   void onPacket(AcPacketHandler cb, void *arg = 0);
   // set callback - ack timeout
   void onTimeout(AcTimeoutHandler cb, void *arg = 0);
