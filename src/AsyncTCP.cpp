@@ -994,23 +994,25 @@ int8_t AsyncClient::_close() {
 }
 
 bool AsyncClient::_allocate_closed_slot() {
-  if (_closed_slot != INVALID_CLOSED_SLOT) {
-    return true;
-  }
+  bool allocated = false;
   if (xSemaphoreTake(_slots_lock, portMAX_DELAY) == pdTRUE) {
     uint32_t closed_slot_min_index = 0;
-    for (int i = 0; i < _number_of_closed_slots; ++i) {
-      if ((_closed_slot == INVALID_CLOSED_SLOT || _closed_slots[i] <= closed_slot_min_index) && _closed_slots[i] != 0) {
-        closed_slot_min_index = _closed_slots[i];
-        _closed_slot = i;
+    allocated = _closed_slot != INVALID_CLOSED_SLOT;
+    if (!allocated) {
+      for (int i = 0; i < _number_of_closed_slots; ++i) {
+        if ((_closed_slot == INVALID_CLOSED_SLOT || _closed_slots[i] <= closed_slot_min_index) && _closed_slots[i] != 0) {
+          closed_slot_min_index = _closed_slots[i];
+          _closed_slot = i;
+        }
       }
-    }
-    if (_closed_slot != INVALID_CLOSED_SLOT) {
-      _closed_slots[_closed_slot] = 0;
+      allocated = _closed_slot != INVALID_CLOSED_SLOT;
+      if (allocated) {
+        _closed_slots[_closed_slot] = 0;
+      }
     }
     xSemaphoreGive(_slots_lock);
   }
-  return (_closed_slot != INVALID_CLOSED_SLOT);
+  return allocated;
 }
 
 void AsyncClient::_free_closed_slot() {
