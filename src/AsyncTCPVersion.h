@@ -31,8 +31,8 @@ extern "C" {
 /**
  * Current version, as string
  */
-#define df2xstr(s)              #s
-#define df2str(s)               df2xstr(s)
+#define df2xstr(s)       #s
+#define df2str(s)        df2xstr(s)
 #define ASYNCTCP_VERSION df2str(ASYNCTCP_VERSION_MAJOR) "." df2str(ASYNCTCP_VERSION_MINOR) "." df2str(ASYNCTCP_VERSION_PATCH)
 
 #ifdef __cplusplus
