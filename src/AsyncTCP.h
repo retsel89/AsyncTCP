@@ -22,10 +22,7 @@
 #ifndef ASYNCTCP_H_
 #define ASYNCTCP_H_
 
-#define ASYNCTCP_VERSION          "3.3.2"
-#define ASYNCTCP_VERSION_MAJOR    3
-#define ASYNCTCP_VERSION_MINOR    3
-#define ASYNCTCP_VERSION_REVISION 2
+#include "AsyncTCPVersion.h"
 #define ASYNCTCP_FORK_ESP32Async
 
 #include "IPAddress.h"
