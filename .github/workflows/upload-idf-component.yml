@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version to push to the component registry'
+        description: 'Component version (1.2.3, 1.2.3-rc1 or 1.2.3.4)'
         required: true
       git_ref:
-        description: 'Git ref with the source to push to the component registry'
+        description: 'Git ref with the source (branch, tag or commit)'
         required: true
 
 permissions:
