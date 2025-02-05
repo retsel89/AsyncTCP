@@ -167,6 +167,7 @@ static inline bool _get_async_event(lwip_tcp_event_packet_t **e) {
     */
     lwip_tcp_event_packet_t *next_pkt = NULL;
     while (xQueuePeek(_async_queue, &next_pkt, 0) == pdPASS) {
+      // if the next event that will come is a poll event for the same connection, we can discard it and continue
       if (next_pkt->arg == (*e)->arg && next_pkt->event == LWIP_TCP_POLL) {
         if (xQueueReceive(_async_queue, &next_pkt, 0) == pdPASS) {
           free(next_pkt);
@@ -176,7 +177,7 @@ static inline bool _get_async_event(lwip_tcp_event_packet_t **e) {
         }
       }
 
-      // quit while loop if next event can't be discarded
+      // quit while loop if next incoming event can't be discarded (not a poll event)
       break;
     }
 
@@ -193,9 +194,9 @@ static inline bool _get_async_event(lwip_tcp_event_packet_t **e) {
       free(*e);
       *e = NULL;
       log_d("discarding poll due to queue congestion");
-      continue;  // Retry
+      continue;  // continue main loop to dequeue next event which we know is not a poll event
     }
-    return true;
+    return true;  // queue not nearly full, caller can process the poll event
   }
   return false;
 }
@@ -355,6 +356,7 @@ static int8_t _tcp_clear_events(void *arg) {
   e->arg = arg;
   if (!_prepend_async_event(&e)) {
     free((void *)(e));
+    return ERR_TIMEOUT;
   }
   return ERR_OK;
 }
@@ -372,6 +374,7 @@ static int8_t _tcp_connected(void *arg, tcp_pcb *pcb, int8_t err) {
   e->connected.err = err;
   if (!_prepend_async_event(&e)) {
     free((void *)(e));
+    return ERR_TIMEOUT;
   }
   return ERR_OK;
 }
@@ -396,6 +399,7 @@ static int8_t _tcp_poll(void *arg, struct tcp_pcb *pcb) {
   // poll events are not critical 'cause those are repetitive, so we may not wait the queue in any case
   if (!_send_async_event(&e, 0)) {
     free((void *)(e));
+    return ERR_TIMEOUT;
   }
   return ERR_OK;
 }
@@ -423,6 +427,7 @@ static int8_t _tcp_recv(void *arg, struct tcp_pcb *pcb, struct pbuf *pb, int8_t 
   }
   if (!_send_async_event(&e)) {
     free((void *)(e));
+    return ERR_TIMEOUT;
   }
   return ERR_OK;
 }
@@ -440,6 +445,7 @@ static int8_t _tcp_sent(void *arg, struct tcp_pcb *pcb, uint16_t len) {
   e->sent.len = len;
   if (!_send_async_event(&e)) {
     free((void *)(e));
+    return ERR_TIMEOUT;
   }
   return ERR_OK;
 }
@@ -491,6 +497,7 @@ static int8_t _tcp_accept(void *arg, AsyncClient *client) {
   e->accept.client = client;
   if (!_prepend_async_event(&e)) {
     free((void *)(e));
+    return ERR_TIMEOUT;
   }
   return ERR_OK;
 }
@@ -1614,7 +1621,11 @@ int8_t AsyncServer::_accept(tcp_pcb *pcb, int8_t err) {
     AsyncClient *c = new AsyncClient(pcb);
     if (c) {
       c->setNoDelay(_noDelay);
-      return _tcp_accept(this, c);
+      const int8_t err = _tcp_accept(this, c);
+      if (err != ERR_OK) {
+        delete c;
+      }
+      return err;
     }
   }
   if (tcp_close(pcb) != ERR_OK) {
