@@ -1616,21 +1616,37 @@ void AsyncServer::end() {
 
 // runs on LwIP thread
 int8_t AsyncServer::_accept(tcp_pcb *pcb, int8_t err) {
-  // ets_printf("+A: 0x%08x\n", pcb);
+  if (!pcb) {
+    log_e("_accept failed: pcb is NULL");
+    return ERR_ABRT;
+  }
   if (_connect_cb) {
     AsyncClient *c = new (std::nothrow) AsyncClient(pcb);
-    if (c) {
+    if (c && c->pcb()) {
       c->setNoDelay(_noDelay);
-      const int8_t err = _tcp_accept(this, c);
-      if (err != ERR_OK) {
-        tcp_abort(pcb);
-        delete c;
+      if (_tcp_accept(this, c) == ERR_OK) {
+        return ERR_OK;  // success
       }
-      return err;
+      // Couldn't allocate accept event
+      // We can't let the client object call in to close, as we're on the LWIP thread; it could deadlock trying to RPC to itself
+      c->_pcb = nullptr;
+      tcp_abort(pcb);
+      log_e("_accept failed: couldn't accept client");
+      return ERR_ABRT;
     }
+    if (c) {
+      // Couldn't complete setup
+      // pcb has already been aborted
+      delete c;
+      pcb = nullptr;
+      log_e("_accept failed: couldn't complete setup");
+      return ERR_ABRT;
+    }
+    log_e("_accept failed: couldn't allocate client");
+  } else {
+    log_e("_accept failed: no onConnect callback");
   }
   tcp_abort(pcb);
-  log_d("_accept failed");
   return ERR_OK;
 }
 
