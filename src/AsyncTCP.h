@@ -246,6 +246,8 @@ public:
   }
 
 protected:
+  friend class AsyncServer;
+
   bool _connect(ip_addr_t addr, uint16_t port);
 
   tcp_pcb *_pcb;
