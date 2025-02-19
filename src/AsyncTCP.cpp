@@ -23,8 +23,6 @@ extern "C" {
 #include <NetworkInterface.h>
 #endif
 
-#define TAG "AsyncTCP"
-
 // https://github.com/espressif/arduino-esp32/issues/10526
 #ifdef CONFIG_LWIP_TCPIP_CORE_LOCKING
 #define TCP_MUTEX_LOCK()                                \
