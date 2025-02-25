@@ -9,7 +9,7 @@
 #include <functional>
 #include <string>
 
-#define WIFI_SSID "IoT"
+#define WIFI_SSID     "IoT"
 #define WIFI_PASSWORD ""
 
 void fetchAsync(const char *host, std::function<void(const StreamString *)> onDone) {
