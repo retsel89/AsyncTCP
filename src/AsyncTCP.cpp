@@ -1053,6 +1053,8 @@ int8_t AsyncClient::_connected(tcp_pcb *pcb, int8_t err) {
   if (_pcb) {
     _rx_last_packet = millis();
   }
+  _tx_last_packet = 0;
+  _rx_last_ack = 0;
   if (_connect_cb) {
     _connect_cb(_connect_cb_arg, this);
   }
