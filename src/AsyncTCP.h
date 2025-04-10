@@ -7,10 +7,15 @@
 #include "AsyncTCPVersion.h"
 #define ASYNCTCP_FORK_ESP32Async
 
+#include <esp_idf_version.h>
+
+#ifdef ARDUINO
 #include "IPAddress.h"
 #if ESP_IDF_VERSION_MAJOR < 5
 #include "IPv6Address.h"
 #endif
+#endif
+
 #include "lwip/ip6_addr.h"
 #include "lwip/ip_addr.h"
 #include <functional>
@@ -83,9 +88,12 @@ public:
   bool operator!=(const AsyncClient &other) const {
     return !(*this == other);
   }
+  bool connect(ip_addr_t addr, uint16_t port);
+#ifdef ARDUINO
   bool connect(const IPAddress &ip, uint16_t port);
 #if ESP_IDF_VERSION_MAJOR < 5
   bool connect(const IPv6Address &ip, uint16_t port);
+#endif
 #endif
   bool connect(const char *host, uint16_t port);
   /**
@@ -180,11 +188,23 @@ public:
 
   uint32_t getRemoteAddress() const;
   uint16_t getRemotePort() const;
+  uint16_t remotePort() const {
+    return getRemotePort();
+  }
+
   uint32_t getLocalAddress() const;
   uint16_t getLocalPort() const;
+  uint16_t localPort() const {
+    return getLocalPort();
+  }
+
+  ip4_addr_t getRemoteAddress4() const;
+  ip4_addr_t getLocalAddress4() const;
+
 #if LWIP_IPV6
   ip6_addr_t getRemoteAddress6() const;
   ip6_addr_t getLocalAddress6() const;
+#ifdef ARDUINO
 #if ESP_IDF_VERSION_MAJOR < 5
   IPv6Address remoteIP6() const;
   IPv6Address localIP6() const;
@@ -193,12 +213,12 @@ public:
   IPAddress localIP6() const;
 #endif
 #endif
+#endif
 
-  // compatibility
+#ifdef ARDUINO
   IPAddress remoteIP() const;
-  uint16_t remotePort() const;
   IPAddress localIP() const;
-  uint16_t localPort() const;
+#endif
 
   // set callback - on successful connect
   void onConnect(AcConnectHandler cb, void *arg = 0);
@@ -249,8 +269,6 @@ public:
 protected:
   friend class AsyncServer;
 
-  bool _connect(ip_addr_t addr, uint16_t port);
-
   tcp_pcb *_pcb;
   int8_t _closed_slot;
 
@@ -298,9 +316,12 @@ public:
 
 class AsyncServer {
 public:
+  AsyncServer(ip_addr_t addr, uint16_t port);
+#ifdef ARDUINO
   AsyncServer(IPAddress addr, uint16_t port);
 #if ESP_IDF_VERSION_MAJOR < 5
   AsyncServer(IPv6Address addr, uint16_t port);
+#endif
 #endif
   AsyncServer(uint16_t port);
   ~AsyncServer();
@@ -317,12 +338,7 @@ public:
 
 protected:
   uint16_t _port;
-  bool _bind4 = false;
-  bool _bind6 = false;
-  IPAddress _addr;
-#if ESP_IDF_VERSION_MAJOR < 5
-  IPv6Address _addr6;
-#endif
+  ip_addr_t _addr;
   bool _noDelay;
   tcp_pcb *_pcb;
   AcConnectHandler _connect_cb;
