@@ -29,6 +29,7 @@ extern "C" {
 #include "lwip/inet.h"
 #include "lwip/opt.h"
 #include "lwip/tcp.h"
+#include "lwip/tcpip.h"
 }
 
 #if CONFIG_ASYNC_TCP_USE_WDT
@@ -39,20 +40,30 @@ extern "C" {
 // https://github.com/espressif/arduino-esp32/blob/3.0.3/libraries/Network/src/NetworkInterface.cpp#L37-L47
 
 // https://github.com/espressif/arduino-esp32/issues/10526
+namespace {
 #ifdef CONFIG_LWIP_TCPIP_CORE_LOCKING
-#define TCP_MUTEX_LOCK()                                \
-  if (!sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)) { \
-    LOCK_TCPIP_CORE();                                  \
+struct tcp_core_guard {
+  bool do_lock;
+  inline tcp_core_guard() : do_lock(!sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)) {
+    if (do_lock) {
+      LOCK_TCPIP_CORE();
+    }
   }
-
-#define TCP_MUTEX_UNLOCK()                             \
-  if (sys_thread_tcpip(LWIP_CORE_LOCK_QUERY_HOLDER)) { \
-    UNLOCK_TCPIP_CORE();                               \
+  inline ~tcp_core_guard() {
+    if (do_lock) {
+      UNLOCK_TCPIP_CORE();
+    }
   }
-#else  // CONFIG_LWIP_TCPIP_CORE_LOCKING
-#define TCP_MUTEX_LOCK()
-#define TCP_MUTEX_UNLOCK()
+  tcp_core_guard(const tcp_core_guard &) = delete;
+  tcp_core_guard(tcp_core_guard &&) = delete;
+  tcp_core_guard &operator=(const tcp_core_guard &) = delete;
+  tcp_core_guard &operator=(tcp_core_guard &&) = delete;
+} __attribute__((unused));
+#else   // CONFIG_LWIP_TCPIP_CORE_LOCKING
+struct tcp_core_guard {
+} __attribute__((unused));
 #endif  // CONFIG_LWIP_TCPIP_CORE_LOCKING
+}  // anonymous namespace
 
 #define INVALID_CLOSED_SLOT -1
 
@@ -826,19 +837,20 @@ bool AsyncClient::connect(ip_addr_t addr, uint16_t port) {
     return false;
   }
 
-  TCP_MUTEX_LOCK();
-  tcp_pcb *pcb = tcp_new_ip_type(addr.type);
-  if (!pcb) {
-    TCP_MUTEX_UNLOCK();
-    log_e("pcb == NULL");
-    return false;
+  tcp_pcb *pcb;
+  {
+    tcp_core_guard tcg;
+    pcb = tcp_new_ip_type(addr.type);
+    if (!pcb) {
+      log_e("pcb == NULL");
+      return false;
+    }
+    tcp_arg(pcb, this);
+    tcp_err(pcb, &_tcp_error);
+    tcp_recv(pcb, &_tcp_recv);
+    tcp_sent(pcb, &_tcp_sent);
+    tcp_poll(pcb, &_tcp_poll, CONFIG_ASYNC_TCP_POLL_TIMER);
   }
-  tcp_arg(pcb, this);
-  tcp_err(pcb, &_tcp_error);
-  tcp_recv(pcb, &_tcp_recv);
-  tcp_sent(pcb, &_tcp_sent);
-  tcp_poll(pcb, &_tcp_poll, CONFIG_ASYNC_TCP_POLL_TIMER);
-  TCP_MUTEX_UNLOCK();
 
   esp_err_t err = _tcp_connect(pcb, _closed_slot, &addr, port, (tcp_connected_fn)&_tcp_connected);
   return err == ESP_OK;
@@ -875,9 +887,12 @@ bool AsyncClient::connect(const char *host, uint16_t port) {
     return false;
   }
 
-  TCP_MUTEX_LOCK();
-  err_t err = dns_gethostbyname(host, &addr, (dns_found_callback)&_tcp_dns_found, this);
-  TCP_MUTEX_UNLOCK();
+  err_t err;
+  {
+    tcp_core_guard tcg;
+    err = dns_gethostbyname(host, &addr, (dns_found_callback)&_tcp_dns_found, this);
+  }
+
   if (err == ERR_OK) {
 #if ESP_IDF_VERSION_MAJOR < 5
 #if LWIP_IPV6
@@ -975,13 +990,14 @@ int8_t AsyncClient::_close() {
   // ets_printf("X: 0x%08x\n", (uint32_t)this);
   int8_t err = ERR_OK;
   if (_pcb) {
-    TCP_MUTEX_LOCK();
-    tcp_arg(_pcb, NULL);
-    tcp_sent(_pcb, NULL);
-    tcp_recv(_pcb, NULL);
-    tcp_err(_pcb, NULL);
-    tcp_poll(_pcb, NULL, 0);
-    TCP_MUTEX_UNLOCK();
+    {
+      tcp_core_guard tcg;
+      tcp_arg(_pcb, NULL);
+      tcp_sent(_pcb, NULL);
+      tcp_recv(_pcb, NULL);
+      tcp_err(_pcb, NULL);
+      tcp_poll(_pcb, NULL, 0);
+    }
     _tcp_clear_events(this);
     err = _tcp_close(_pcb, _closed_slot);
     if (err != ERR_OK) {
@@ -1548,9 +1564,10 @@ void AsyncServer::begin() {
     return;
   }
   int8_t err;
-  TCP_MUTEX_LOCK();
-  _pcb = tcp_new_ip_type(_addr.type);
-  TCP_MUTEX_UNLOCK();
+  {
+    tcp_core_guard tcg;
+    _pcb = tcp_new_ip_type(_addr.type);
+  }
   if (!_pcb) {
     log_e("_pcb == NULL");
     return;
@@ -1571,22 +1588,18 @@ void AsyncServer::begin() {
     log_e("listen_pcb == NULL");
     return;
   }
-  TCP_MUTEX_LOCK();
+  tcp_core_guard tcg;
   tcp_arg(_pcb, (void *)this);
   tcp_accept(_pcb, &_s_accept);
-  TCP_MUTEX_UNLOCK();
 }
 
 void AsyncServer::end() {
   if (_pcb) {
-    TCP_MUTEX_LOCK();
+    tcp_core_guard tcg;
     tcp_arg(_pcb, NULL);
     tcp_accept(_pcb, NULL);
     if (tcp_close(_pcb) != ERR_OK) {
-      TCP_MUTEX_UNLOCK();
-      _tcp_abort(_pcb, -1);
-    } else {
-      TCP_MUTEX_UNLOCK();
+      tcp_abort(_pcb);
     }
     _pcb = NULL;
   }
