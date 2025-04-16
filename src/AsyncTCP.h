@@ -80,7 +80,13 @@ public:
   AsyncClient(tcp_pcb *pcb = 0);
   ~AsyncClient();
 
-  AsyncClient &operator=(const AsyncClient &other);
+  // Noncopyable
+  AsyncClient(const AsyncClient &) = delete;
+  AsyncClient &operator=(const AsyncClient &) = delete;
+
+  // Nonmovable
+  AsyncClient(AsyncClient &&) = delete;
+  AsyncClient &operator=(AsyncClient &&) = delete;
 
   bool operator==(const AsyncClient &other) const;
 

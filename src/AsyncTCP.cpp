@@ -759,24 +759,6 @@ AsyncClient::~AsyncClient() {
  * Operators
  * */
 
-AsyncClient &AsyncClient::operator=(const AsyncClient &other) {
-  if (_pcb) {
-    _close();
-  }
-
-  _pcb = other._pcb;
-  _closed_slot = other._closed_slot;
-  if (_pcb) {
-    _rx_last_packet = millis();
-    tcp_arg(_pcb, this);
-    tcp_recv(_pcb, &_tcp_recv);
-    tcp_sent(_pcb, &_tcp_sent);
-    tcp_err(_pcb, &_tcp_error);
-    tcp_poll(_pcb, &_tcp_poll, CONFIG_ASYNC_TCP_POLL_TIMER);
-  }
-  return *this;
-}
-
 bool AsyncClient::operator==(const AsyncClient &other) const {
   return _pcb == other._pcb;
 }
