@@ -81,7 +81,6 @@ public:
   ~AsyncClient();
 
   AsyncClient &operator=(const AsyncClient &other);
-  AsyncClient &operator+=(const AsyncClient &other);
 
   bool operator==(const AsyncClient &other) const;
 
@@ -308,10 +307,6 @@ protected:
   int8_t _fin(tcp_pcb *pcb, int8_t err);
   int8_t _lwip_fin(tcp_pcb *pcb, int8_t err);
   void _dns_found(struct ip_addr *ipaddr);
-
-public:
-  AsyncClient *prev;
-  AsyncClient *next;
 };
 
 class AsyncServer {

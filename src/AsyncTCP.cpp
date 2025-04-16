@@ -732,7 +732,7 @@ static tcp_pcb *_tcp_listen_with_backlog(tcp_pcb *pcb, uint8_t backlog) {
 AsyncClient::AsyncClient(tcp_pcb *pcb)
   : _connect_cb(0), _connect_cb_arg(0), _discard_cb(0), _discard_cb_arg(0), _sent_cb(0), _sent_cb_arg(0), _error_cb(0), _error_cb_arg(0), _recv_cb(0),
     _recv_cb_arg(0), _pb_cb(0), _pb_cb_arg(0), _timeout_cb(0), _timeout_cb_arg(0), _poll_cb(0), _poll_cb_arg(0), _ack_pcb(true), _tx_last_packet(0),
-    _rx_timeout(0), _rx_last_ack(0), _ack_timeout(CONFIG_ASYNC_TCP_MAX_ACK_TIME), _connect_port(0), prev(NULL), next(NULL) {
+    _rx_timeout(0), _rx_last_ack(0), _ack_timeout(CONFIG_ASYNC_TCP_MAX_ACK_TIME), _connect_port(0) {
   _pcb = pcb;
   _closed_slot = INVALID_CLOSED_SLOT;
   if (_pcb) {
@@ -779,21 +779,6 @@ AsyncClient &AsyncClient::operator=(const AsyncClient &other) {
 
 bool AsyncClient::operator==(const AsyncClient &other) const {
   return _pcb == other._pcb;
-}
-
-AsyncClient &AsyncClient::operator+=(const AsyncClient &other) {
-  if (next == NULL) {
-    next = (AsyncClient *)(&other);
-    next->prev = this;
-  } else {
-    AsyncClient *c = next;
-    while (c->next != NULL) {
-      c = c->next;
-    }
-    c->next = (AsyncClient *)(&other);
-    c->next->prev = c;
-  }
-  return *this;
 }
 
 /*
