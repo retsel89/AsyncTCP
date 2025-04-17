@@ -11,7 +11,7 @@
 
 #ifdef ARDUINO
 #include "IPAddress.h"
-#if ESP_IDF_VERSION_MAJOR < 5
+#if __has_include(<IPv6Address.h>)
 #include "IPv6Address.h"
 #endif
 #endif
@@ -97,7 +97,7 @@ public:
   bool connect(ip_addr_t addr, uint16_t port);
 #ifdef ARDUINO
   bool connect(const IPAddress &ip, uint16_t port);
-#if ESP_IDF_VERSION_MAJOR < 5
+#if __has_include(<IPv6Address.h>)
   bool connect(const IPv6Address &ip, uint16_t port);
 #endif
 #endif
@@ -211,7 +211,7 @@ public:
   ip6_addr_t getRemoteAddress6() const;
   ip6_addr_t getLocalAddress6() const;
 #ifdef ARDUINO
-#if ESP_IDF_VERSION_MAJOR < 5
+#if __has_include(<IPv6Address.h>)
   IPv6Address remoteIP6() const;
   IPv6Address localIP6() const;
 #else
@@ -311,7 +311,7 @@ public:
   AsyncServer(ip_addr_t addr, uint16_t port);
 #ifdef ARDUINO
   AsyncServer(IPAddress addr, uint16_t port);
-#if ESP_IDF_VERSION_MAJOR < 5
+#if __has_include(<IPv6Address.h>)
   AsyncServer(IPv6Address addr, uint16_t port);
 #endif
 #endif
