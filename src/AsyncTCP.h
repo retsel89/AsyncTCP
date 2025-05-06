@@ -80,7 +80,7 @@ class AsyncClient {
 public:
   AsyncClient(tcp_pcb *pcb = 0);
   ~AsyncClient();
-
+  uint8_t id;
   // Noncopyable
   AsyncClient(const AsyncClient &) = delete;
   AsyncClient &operator=(const AsyncClient &) = delete;
@@ -261,6 +261,7 @@ public:
     return _pcb;
   }
 
+  void _free_closed_slot();
 protected:
   friend class AsyncTCP_detail;
   friend class AsyncServer;
@@ -295,7 +296,6 @@ protected:
   uint16_t _connect_port;
 
   int8_t _close();
-  void _free_closed_slot();
   bool _allocate_closed_slot();
   int8_t _connected(tcp_pcb *pcb, int8_t err);
   void _error(int8_t err);

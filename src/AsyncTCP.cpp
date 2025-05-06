@@ -1155,7 +1155,8 @@ int8_t AsyncClient::_poll(tcp_pcb *pcb) {
     }
   }
   // RX Timeout
-  if (_rx_timeout && (now - _rx_last_packet) >= (_rx_timeout * 1000)) {
+
+  if (_rx_timeout -- <= 0) {
     log_d("rx timeout %d", pcb->state);
     _close();
     return ERR_OK;
@@ -1203,7 +1204,7 @@ size_t AsyncClient::write(const char *data, size_t size, uint8_t apiflags) {
 }
 
 void AsyncClient::setRxTimeout(uint32_t timeout) {
-  _rx_timeout = timeout;
+  _rx_timeout = timeout * 2; // Need mult * 2 because poll frecuency is 500ms
 }
 
 uint32_t AsyncClient::getRxTimeout() const {
