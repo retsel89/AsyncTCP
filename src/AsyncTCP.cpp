@@ -1073,6 +1073,12 @@ int8_t AsyncClient::_lwip_fin(tcp_pcb *pcb, int8_t err) {
     log_d("0x%08" PRIx32 " != 0x%08" PRIx32, (uint32_t)pcb, (uint32_t)_pcb);
     return ERR_OK;
   }
+
+  if (_pcb->state == CLOSED || _pcb->state == TIME_WAIT) {
+    log_d("Ignoring FIN, pcb already closed.");
+    return ERR_OK;
+  }
+
   tcp_arg(_pcb, NULL);
   if (_pcb->state == LISTEN) {
     tcp_sent(_pcb, NULL);
