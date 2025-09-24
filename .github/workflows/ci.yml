@@ -21,7 +21,7 @@ jobs:
       matrix:
         config: [arduino-cli.yaml, arduino-cli-dev.yaml]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: arduino/setup-arduino-cli@v1
       - name: Download board
         run: |
@@ -55,6 +55,8 @@ jobs:
             board: esp32-s3-devkitc-1
           - env: ci-arduino-2
             board: esp32-c3-devkitc-02
+          - env: ci-arduino-2-esp-idf_log
+            board: esp32dev
 
           - env: ci-arduino-3
             board: esp32dev
@@ -66,6 +68,8 @@ jobs:
             board: esp32-c3-devkitc-02
           - env: ci-arduino-3
             board: esp32-c6-devkitc-1
+          - env: ci-arduino-3-esp-idf_log
+            board: esp32dev
 
           # - env: ci-arduino-rc
           #   board: esp32dev
@@ -85,7 +89,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
@@ -96,7 +100,7 @@ jobs:
             ~/.platformio
 
       - name: Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.x"
 
@@ -134,7 +138,7 @@ jobs:
     container: espressif/idf:${{ matrix.idf_ver }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           path: components/asynctcp
 
