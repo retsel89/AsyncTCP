@@ -1500,14 +1500,14 @@ void AsyncServer::onClient(AcConnectHandler cb, void *arg) {
   _connect_cb_arg = arg;
 }
 
-void AsyncServer::begin() {
+bool AsyncServer::begin() {
   if (_pcb) {
-    return;
+    return false;
   }
 
   if (!_start_async_task()) {
     async_tcp_log_e("failed to start task");
-    return;
+    return false;
   }
   int8_t err;
   {
@@ -1520,7 +1520,7 @@ void AsyncServer::begin() {
   }
   if (!_pcb) {
     async_tcp_log_e("_pcb == NULL");
-    return;
+    return false;
   }
 
   err = _tcp_bind(&_pcb, &_addr, _port);
@@ -1528,18 +1528,19 @@ void AsyncServer::begin() {
   if (err != ERR_OK) {
     // pcb was closed by _tcp_bind
     async_tcp_log_e("bind error: %d", err);
-    return;
+    return false;
   }
 
   static uint8_t backlog = 5;
   _pcb = _tcp_listen_with_backlog(_pcb, backlog);
   if (!_pcb) {
     async_tcp_log_e("listen_pcb == NULL");
-    return;
+    return false;
   }
   tcp_core_guard tcg;
   tcp_arg(_pcb, (void *)this);
   tcp_accept(_pcb, &AsyncTCP_detail::tcp_accept);
+  return true;
 }
 
 void AsyncServer::end() {
